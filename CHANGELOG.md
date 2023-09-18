@@ -1,4 +1,4 @@
-# Revision history for ident
+# Revision history for dumb
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

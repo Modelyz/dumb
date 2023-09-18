@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cabal run ident -- -f ./data/messagestore.txt
+cabal run dumb -- -f ./data/messagestore.txt

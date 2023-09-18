@@ -6,20 +6,17 @@ import Control.Exception (AsyncException (..), Handler (..), SomeException (..),
 import Control.Monad qualified as Monad (forever, unless, when)
 import Data.Aeson qualified as JSON (eitherDecode, encode)
 import Data.Map.Strict as Map (Map, delete, empty, insert)
-import Data.Map.Strict qualified as Map
-import Data.Maybe qualified as Maybe
 import Data.Set as Set (Set, empty, insert)
-import Data.Text qualified as T
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.UUID.V4 qualified as UUID (nextRandom)
-import Ident.Fragment (Fragment (..))
-import Message (Message (Message), Payload (..), addVisited, appendMessage, creator, getFragments, metadata, payload, readMessages, setCreator, setFlow, setFragments)
+import Message (Message (Message), addVisited, appendMessage, creator, messageId, metadata, payload, readMessages, setCreator, setFlow)
 import MessageFlow (MessageFlow (..))
-import MessageId (MessageId, messageId)
+import MessageId (MessageId)
 import Metadata (Metadata (..))
 import Network.WebSockets (ConnectionException (..))
 import Network.WebSockets qualified as WS (ClientApp, DataMessage (..), fromLazyByteString, receiveDataMessage, runClient, sendTextData)
 import Options.Applicative qualified as Options
+import Payload (Payload (..))
 import Service (Service (..))
 import System.Exit (exitSuccess)
 
@@ -30,8 +27,7 @@ type Host = String
 type Port = Int
 
 data State = State
-    { lastNumbers :: Map.Map T.Text Int -- last identification number for each fragment name
-    , pending :: Map MessageId Message
+    { pending :: Map MessageId Message
     , uuids :: Set MessageId
     , syncing :: Bool
     }
@@ -39,13 +35,12 @@ data State = State
 type StateMV = MVar State
 
 myself :: Service
-myself = Ident
+myself = Dumb
 
 emptyState :: State
 emptyState =
     State
-        { lastNumbers = Map.empty
-        , pending = Map.empty
+        { pending = Map.empty
         , Main.uuids = Set.empty
         , syncing = True
         }
@@ -98,7 +93,7 @@ clientApp msgPath storeChan stateMV conn = do
                 Requested -> case creator msg of
                     Front -> do
                         -- process
-                        processedMsgs <- processMessage stateMV msg
+                        processedMsgs <- processMessage msg
                         st <- takeMVar stateMV
                         putMVar stateMV $! foldl update st processedMsgs
                         -- send to the Store
@@ -122,7 +117,7 @@ clientApp msgPath storeChan stateMV conn = do
                 st' <- readMVar stateMV
                 case flow (metadata msg) of
                     Requested -> case creator msg of
-                        Front -> Monad.when (messageId (metadata msg) `notElem` Main.uuids st') $ do
+                        Front -> Monad.when (messageId msg `notElem` Main.uuids st') $ do
                             appendMessage msgPath msg
                             -- Add it or remove to the pending list (if relevant) and keep the uuid
                             st'' <- takeMVar stateMV
@@ -138,7 +133,7 @@ clientApp msgPath storeChan stateMV conn = do
                             st''' <- takeMVar stateMV
                             putMVar stateMV $! st'''{syncing = False}
                             putStrLn "Left the syncing mode"
-                        _ -> Monad.when (messageId (metadata msg) `notElem` Main.uuids st') $ do
+                        _ -> Monad.when (messageId msg `notElem` Main.uuids st') $ do
                             appendMessage msgPath msg
                             -- Add it or remove to the pending list (if relevant) and keep the uuid
                             st'' <- takeMVar stateMV
@@ -158,47 +153,24 @@ update state msg =
             InitiatedConnection _ -> state
             _ ->
                 state
-                    { pending = Map.insert (messageId (metadata msg)) msg $ pending state
-                    , Main.uuids = Set.insert (messageId $ metadata msg) (Main.uuids state)
+                    { pending = Map.insert (messageId msg) msg $ pending state
+                    , Main.uuids = Set.insert (messageId msg) (Main.uuids state)
                     }
         Processed ->
             state
-                { pending = Map.delete (messageId (metadata msg)) $ pending state
-                , Main.uuids = Set.insert (messageId $ metadata msg) (Main.uuids state)
+                { pending = Map.delete (messageId msg) $ pending state
+                , Main.uuids = Set.insert (messageId msg) (Main.uuids state)
                 }
         Error _ -> state
 
-processMessage :: StateMV -> Message -> IO [Message]
-processMessage stateMV msg = do
+processMessage :: Message -> IO [Message]
+processMessage msg = do
     case payload msg of
-        AddedIdentifier _ -> do
-            state <- takeMVar stateMV
-            -- read the fragments
-            let fragments = getFragments msg
-            print fragments
-            let (fragments', newState) =
-                    foldl
-                        ( \(frags, st) fragment -> case fragment of
-                            Sequence name padding step start _ ->
-                                let newseq = step + Maybe.fromMaybe start (Map.lookup name (lastNumbers st))
-                                 in (Sequence name padding step start (Just newseq) : frags, (st{lastNumbers = Map.insert name newseq (lastNumbers st)}))
-                            fr -> (fr : frags, st)
-                        )
-                        ([], state)
-                        fragments
-            putMVar stateMV $! update newState msg
-            putStrLn $ "NEW STATE:\n" ++ show newState
-            -- build a ProcessedMsg with the computed sequences.
-            -- We need to loop on the fragment and update those whose with the right name
-            state' <- takeMVar stateMV
-            let processedMsg = setFlow Processed $ setFragments (reverse fragments') $ setCreator myself msg
-            putMVar stateMV $! update state' processedMsg
-            putStrLn $ "FRAGMENTS:\n" ++ show fragments'
-            return [processedMsg]
-        AddedIdentifierType _ -> return [setFlow Processed $ setCreator myself msg]
-        RemovedIdentifierType _ -> return [setFlow Processed $ setCreator myself msg]
-        ChangedIdentifierType _ _ -> return [setFlow Processed $ setCreator Ident msg]
-        _ -> return []
+        AddedIdentifier _ -> return []
+        AddedIdentifierType _ -> return []
+        RemovedIdentifierType _ -> return []
+        ChangedIdentifierType _ _ -> return []
+        _ -> return [setFlow Processed $ setCreator myself msg]
 
 maxWait :: Int
 maxWait = 10
@@ -253,6 +225,6 @@ main =
         Options.info
             (options Options.<**> Options.helper)
             ( Options.fullDesc
-                <> Options.progDesc "Ident handles the identification needs"
-                <> Options.header "Modelyz Ident"
+                <> Options.progDesc "Dumb does nothing but returning a Processed msg"
+                <> Options.header "Modelyz Dumb"
             )

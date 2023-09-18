@@ -1,7 +1,7 @@
 cabal-version:      3.4
-name:               modelyz-ident
+name:               modelyz-dumb
 version:            0.1.0.0
-synopsis: Modelyz microservice for the identification needs
+synopsis: Modelyz microservice that does nothing but returning a msg considered as processed
 -- description:
 -- bug-reports:
 license: AGPL-3.0-or-later
@@ -16,27 +16,20 @@ extra-source-files: CHANGELOG.md
 
 source-repository head
     type: git
-    location: https://github.com/Modelyz/ident
+    location: https://github.com/Modelyz/dumb
 
-executable ident
+executable dumb
     main-is:          Main.hs
     hs-source-dirs:   src
     ghc-options: -Wall -O2
     build-depends:
         base ^>= 4.16.0.0
         , aeson ^>= 2.1
-        , bytestring
         , containers
-        , http-types
         , modelyz-message
-        , mtl
         , optparse-applicative
-        , scientific
-        , text
         , time
-        , unordered-containers
         , uuid
-        , vector
         , wai
         , wai-websockets
         , warp
